@@ -1,0 +1,156 @@
+clear all;
+close all;
+
+% --- Define Configurations for Multiple Datasets ---
+datasets = [
+    struct('ID', 'Sub01_squeeze', 'Path', 'data\DaVa\c', 'ROI', [-42 -25 65; 39 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    struct('ID', 'Sub01_restHF', 'Path', 'data\DaVa\d', 'ROI', [-42 -25 65; 39 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    struct('ID', 'Sub02_squeeze', 'Path', 'data\GeBa\c', 'ROI', [-39 -19 65; 36 -25 56], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    struct('ID', 'Sub02_restHF', 'Path', 'data\GeBa\d', 'ROI', [-39 -19 65; 36 -25 56], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    struct('ID', 'Sub03_squeeze', 'Path', 'data\HeEs\c', 'ROI', [-33 -25 71; 39 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    struct('ID', 'Sub03_restHF', 'Path', 'data\HeEs\d', 'ROI', [-33 -25 71; 39 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    struct('ID', 'Sub04_squeeze', 'Path', 'data\JoOe\c', 'ROI', [-39 -25 56; 39 -16 59], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    struct('ID', 'Sub04_restHF', 'Path', 'data\JoOe\d', 'ROI', [-39 -25 56; 39 -16 59], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    struct('ID', 'Sub05_squeeze', 'Path', 'data\LaLi\c', 'ROI', [-36 -25 56; 36 -19 50], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    struct('ID', 'Sub05_restHF', 'Path', 'data\LaLi\d', 'ROI', [-36 -25 56; 36 -19 50], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    struct('ID', 'Sub06_squeeze', 'Path', 'data\SaCe\c', 'ROI', [-36 -25 65; 42 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    struct('ID', 'Sub06_restHF', 'Path', 'data\SaCe\d', 'ROI', [-36 -25 65; 42 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8),  ...
+    struct('ID', 'Sub07_squeeze', 'Path', 'data\SiWi\c', 'ROI', [-33 -28 62; 39 -19 62], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8),  ...
+    struct('ID', 'Sub07_restHF', 'Path', 'data\SiWi\d', 'ROI', [-33 -28 62; 39 -19 62], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8),  ...
+    %struct('ID', 'Sub08_squeeze', 'Path', 'data\JuSc\c', 'ROI', [-36 -19 71; 33 -22 74], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8),  ...
+    %struct('ID', 'Sub08_restHF', 'Path', 'data\JuSc\d', 'ROI', [-36 -19 71; 33 -22 74], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8)  ...
+    ];
+
+% Preallocate results struct array with powerSpectrum, r, and p fields
+results = struct('ID', {}, 'DataPath', {}, 'ROI', {}, 'ROINames', {}, ...
+                 'TR', {}, 'ALFF', {}, 'fractALFF', {}, 'stdev', {}, ...
+                 'r', {}, 'p', {}, 'powerSpectrum', {});
+
+% --- Loop Over Each Dataset ---
+for k = 1:length(datasets)
+    current = datasets(k);
+    fprintf('Processing dataset %d/%d: %s...\n', k, length(datasets), current.ID);
+    
+    % Extract Time Series
+    [ts, info] = extract_mni_timeseries(current.Path, current.ROI, ...
+                                         'FilePattern', 'sw*.nii', ...
+                                         'Radius', 3);
+    
+    if contains(current.ID, 'squeeze', 'IgnoreCase', true)
+        ts = ts(50:end, :); % Skip baseline images
+    end
+    
+    tspsc = (ts ./ median(ts) - 1) * 100; % %-signal change
+    tspscd = detrend(tspsc);              % Detrend
+    
+    numROIs = size(current.ROI, 1);
+    ALFF = zeros(1, numROIs);
+    fractALFF = zeros(1, numROIs);
+    stdev = zeros(1, numROIs);
+    o = cell(1, numROIs);
+    
+    r_val = NaN;
+    p_val = NaN;
+
+    % Create Figure per Dataset
+    f = figure('Name', sprintf('Dataset: %s', current.ID));
+    
+    % Subplot 1: Raw / Detrended Data
+    subplot(2,2,1);
+    hold on; grid on;
+    title(sprintf('%s - Detrended %% fMRI Signal', current.ID), 'Interpreter', 'none');
+    plot((0:size(ts,1)-1) .* current.TR, tspscd);
+    xlabel('Time (s)');
+    ylabel('% fMRI-signal');
+    legend(current.ROINames);
+    
+    % Subplot 2: Functional Correlation & Regression
+    subplot(2,2,2);
+    hold on; grid on;
+    if numROIs >= 2
+        plot(tspscd(:,2), tspscd(:,1), 'k.');
+        ylabel([current.ROINames{1} ' %-fMRI signal']);
+        xlabel([current.ROINames{2} ' %-fMRI signal']);
+        
+        [B, ~, ~, ~, STATS] = regress(tspscd(:,1), [tspscd(:,2), ones(length(tspscd(:,2)), 1)]);
+        
+        % Extract r value and p value
+        r_val = sqrt(STATS(1)) * sign(B(1));
+        p_val = STATS(3);
+        
+        xVals = [min(tspscd(:,2)), max(tspscd(:,2))];
+        plot(xVals, xVals * B(1) + B(2), 'b-');
+        axis('equal');
+        title(sprintf('y=%.2f*x+%.2f; r=%.2f; p=%.4f', B(1), B(2), r_val, p_val));
+    end
+    
+    % Subplot 3: Power Spectrum Calculation
+    subplot(2,2,3);
+    hold on; grid on;
+    for z = 1:numROIs
+        [ALFF(z), info] = fftBandPower(tspscd(:,z), 1/current.TR, [0.01 0.08], 'Window', 'none');
+        o{z} = info; % Stores frequencies (.f) and PSD (.psd) struct for ROI z
+        
+        fractALFF(z) = ALFF(z) / fftBandPower(tspscd(:,z), 1/current.TR, [0.01 1/(2*current.TR)], 'Window', 'none');
+        stdev(z) = std(tspscd(~isoutlier(tspscd(:,z)), z));
+        plot(o{z}.f, o{z}.psd);
+    end
+    yscale log; xscale log;
+    %ax = gca;
+    %ax.GridLineStyle = '-';
+    %ax.MinorGridLineStyle = '-';
+    xlabel('FRQ [Hz]');
+    ylabel('Power');
+    title('Power Spectrum');
+    
+    % Subplot 4: fALFF Bar Plot
+    subplot(2,2,4);
+    hold on; 
+    grid on;
+    blueColor = [0 0.4470 0.7410];
+    orangeColor = [0.8500 0.3250 0.0980];
+    
+    % Plot fALFF directly on the standard single y-axis
+    % Centered at 1:numROIs with a bar width of 0.5
+    b = bar(1:numROIs, fractALFF, 0.5, 'FaceColor', 'flat');
+    
+    % Apply ROI colors
+    if numROIs >= 1, b.CData(1,:) = blueColor; end
+    if numROIs >= 2, b.CData(2,:) = orangeColor; end
+    
+    ylabel('fALFF');
+    ylim([0, 0.5]);
+    
+    xticks(1:numROIs);
+    xticklabels(current.ROINames);
+    title(sprintf('STD: %.2f vs. %.2f', stdev(1), stdev(2)));
+    
+    hold off;
+    
+    % Save Plot PDF
+    outputFolder = 'plots';
+    if ~exist(outputFolder, 'dir')
+        mkdir(outputFolder);
+    end
+    pdfPath = fullfile(outputFolder, [current.ID '.pdf']);
+    exportgraphics(f, pdfPath, 'ContentType', 'vector');
+    
+    % 3. Store Results in Master Array
+    results(k).ID = current.ID;
+    results(k).DataPath = current.Path;
+    results(k).ROI = current.ROI;
+    results(k).ROINames = current.ROINames;
+    results(k).TR = current.TR;
+    results(k).ALFF = ALFF;
+    results(k).fractALFF = fractALFF;
+    results(k).stdev = stdev;
+    results(k).r = r_val;
+    results(k).p = p_val;
+    results(k).powerSpectrum = o;
+
+end
+
+% --- Save All Results to a Single MAT File ---
+matFileName = 'results.mat';
+save(matFileName, 'results');
+fprintf('\nSuccessfully saved %d dataset results to %s\n', length(results), matFileName);
