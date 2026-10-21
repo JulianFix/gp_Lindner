@@ -1,0 +1,297 @@
+clear all;
+close all;
+
+% Load data
+loadedData = load('results.mat');
+data = loadedData.results;
+
+% Identify Squeeze vs. Rest/Non-Squeeze conditions
+isSqueeze = contains({data.ID}, 'squeeze', 'IgnoreCase', true);
+conditions = {'Squeeze', 'Rest'};
+
+squeezeData = data(isSqueeze);
+restData = data(~isSqueeze);
+
+% Color definitions
+blueColor = [0 0.4470 0.7410]; % lM1 Primary (Figs 1 & 2)
+orangeColor = [0.8500 0.3250 0.0980]; % rM1 Primary (Figs 1 & 2)
+sqColor = [0.4940, 0.1840, 0.5560]; % Squeeze (Deep Teal)
+rstColor = [0.9290, 0.6940, 0.1250]; % Rest (Soft Pink)
+corrColor = [0.4660 0.6740 0.1880]; % Correlation
+lineColor = [0.5 0.5 0.5 0.5]; % Semi-transparent gray
+
+% =========================================================================
+% Compute Global Y-Axis Limits Across All Conditions and Subjects
+% =========================================================================
+all_falff = vertcat(data.fractALFF);
+all_std = vertcat(data.stdev);
+
+% Concatenate all PSD values across all subjects and ROIs
+all_psd = cell2mat(cellfun(@(p) [p{1}.psd(:); p{2}.psd(:)], {data.powerSpectrum}, 'UniformOutput', false)');
+
+% Define unified limits with padding
+falff_ylim = [0, max(all_falff(:)) * 1.15];
+std_ylim = [0, max(all_std(:)) * 1.15];
+psd_ylim = [min(all_psd(:)), max(all_psd(:)) * 1.5]; % Unified PSD log limits
+
+ylims_2ROI = {falff_ylim, std_ylim};
+
+% =========================================================================
+% FIGURES 1 & 2: Individual Conditions (lM1 vs rM1 Connected)
+% =========================================================================
+for c = 1:2
+    condName = conditions{c};
+    if strcmp(condName, 'Squeeze')
+        subData = squeezeData;
+    else
+        subData = restData;
+    end
+    
+    nSubs = length(subData);
+    
+    % Matrices [N x 2] (Col 1 = lM1, Col 2 = rM1)
+    falff_mat = vertcat(subData.fractALFF);
+    std_mat = vertcat(subData.stdev);
+    r_mat = [subData.r]';
+    
+    % Statistics for lM1 vs. rM1 at 2 different conditions
+    [h, p_r] = ttest(r_mat,0,'Tail','right');
+    [h, p_norm_r] = swtest(r_mat);
+    fprintf('%s: ttest r = %.4f\n', condName, p_r);
+    
+    [h, p_std] = ttest(std_mat(:,1),std_mat(:,2));
+    [h, p_norm_std] = swtest(std_mat(:, 1));
+    fprintf('%s: ttest std = %.4f\n', condName, p_std/2);
+    
+    [h, p_falff] = ttest(falff_mat(:,1),falff_mat(:,2));
+    [h, p_norm_falff] = swtest(falff_mat(:, 1));
+    fprintf('%s: ttest fALFF = %.4f\n', condName, p_falff/2);
+    
+    metrics_2ROI = {falff_mat, std_mat};
+    ylabels_2ROI = {'Mean fALFF', 'Mean Signal STD'};
+    titles_2ROI = {sprintf('%s: fALFF', condName), ...
+                   sprintf('%s: Signal STD', condName)};
+    
+    f = figure('Name', sprintf('Group Means - %s (lM1 vs rM1)', condName), ...
+               'Position', [100 100 1000 800]);
+    
+    % Subplots 1 & 2: fALFF, STD (lM1 vs rM1 Connected)
+    for subIdx = 1:2
+        subplot(2, 2, subIdx);
+        y_mat = metrics_2ROI{subIdx};
+        mean_vals = mean(y_mat, 1);
+        sem_vals = std(y_mat, 0, 1) / sqrt(nSubs);
+        
+        b = bar(1:2, mean_vals, 0.5, 'FaceColor', 'flat', 'FaceAlpha', 0.3);
+        b.CData(1,:) = blueColor;   
+        b.CData(2,:) = orangeColor; 
+        hold on;
+        
+        % Connected participant lines across ROIs
+        plot([1 2], y_mat', '-o', 'Color', lineColor, 'LineWidth', 1.2, ...
+            'MarkerSize', 6, 'MarkerFaceColor', [0.2 0.2 0.2], 'MarkerEdgeColor', 'none');
+        
+        errorbar(1:2, mean_vals, sem_vals, 'k.', 'LineWidth', 2, 'CapSize', 10);
+        xticks(1:2); xticklabels({'lM1', 'rM1'}); 
+        ylabel(ylabels_2ROI{subIdx}); title(titles_2ROI{subIdx}); 
+        ylim(ylims_2ROI{subIdx});
+        grid on; 
+        
+        % Add significance marker
+        cur_ylim = ylim;
+        y_range = cur_ylim(2) - cur_ylim(1);
+        y_base = max(y_mat(:)) + (0.05 * y_range);
+        bracket_h = 0.02 * y_range;
+        
+        addSignificanceMarker(1, 2, y_mat(:,1), y_mat(:,2), y_base, bracket_h);
+        hold off;
+    end
+    
+    % Subplot 3: Functional Correlation r (One-sample vs 0)
+    subplot(2, 2, 3);
+    mean_r = mean(r_mat, 1);
+    sem_r = std(r_mat, 0, 1) / sqrt(nSubs);
+    
+    bar(1, mean_r, 0.4, 'FaceColor', corrColor, 'FaceAlpha', 0.3);
+    hold on;
+    plot(ones(size(r_mat)), r_mat, 'o', 'Color', lineColor, ...
+        'MarkerSize', 6, 'MarkerFaceColor', [0.2 0.2 0.2], 'MarkerEdgeColor', 'none');
+    errorbar(1, mean_r, sem_r, 'k.', 'LineWidth', 2, 'CapSize', 10);
+    xticks(1); xticklabels({'lM1 - rM1'}); 
+    ylabel('Correlation (r)'); 
+    ylim([-0.1 1]);
+    title(sprintf('%s: Correlation r', condName)); grid on; 
+    
+    % Add one-sample significance marker (vs 0)
+    cur_ylim = ylim;
+    y_range = cur_ylim(2) - cur_ylim(1);
+    y_base = max(r_mat(:)) + (0.05 * y_range);
+    bracket_h = 0.02 * y_range;
+    
+    addOneSampleSignificanceMarker(1, r_mat, y_base, bracket_h);
+    hold off;
+    
+    % Subplot 4: Mean Power Spectrum 
+    subplot(2, 2, 4);
+    freqs = subData(1).powerSpectrum{1}.f;
+    psd_lM1 = mean(cell2mat(cellfun(@(p) p{1}.psd(:)', {subData.powerSpectrum}, 'UniformOutput', false)'), 1);
+    psd_rM1 = mean(cell2mat(cellfun(@(p) p{2}.psd(:)', {subData.powerSpectrum}, 'UniformOutput', false)'), 1);
+    
+    plot(freqs, psd_lM1, 'LineWidth', 2, 'Color', blueColor); hold on;
+    plot(freqs, psd_rM1, 'LineWidth', 2, 'Color', orangeColor);
+    set(gca, 'XScale', 'log', 'YScale', 'log'); 
+    xlabel('Frequency (Hz)'); ylabel('Power');
+    ylim(psd_ylim); % Standardized Power Spectrum Y-Limits
+    title(sprintf('%s: Mean Power Spectrum', condName));
+    legend({'lM1', 'rM1'}, 'Location', 'northeast'); grid on; hold off;
+    
+    exportgraphics(f, sprintf('Group_Summary_%s_Connected.pdf', condName), 'ContentType', 'vector');
+end
+
+% =========================================================================
+% FIGURE 3: Comparison - lM1 Squeeze vs. lM1 Rest (Connected)
+% =========================================================================
+nSq = length(squeezeData);
+nRst = length(restData);
+
+% Extract paired lM1 (ROI 1) metrics [N x 2] (Col 1 = Squeeze, Col 2 = Rest)
+falff_lM1_pair = [arrayfun(@(s) s.fractALFF(1), squeezeData)', arrayfun(@(s) s.fractALFF(1), restData)'];
+std_lM1_pair = [arrayfun(@(s) s.stdev(1), squeezeData)', arrayfun(@(s) s.stdev(1), restData)'];
+
+% Statistics for squeeze vs. rest of lM1
+[h, p_std] = ttest(std_lM1_pair(:, 1), std_lM1_pair(:, 2));
+[h, p_norm_std] = swtest(std_lM1_pair(:, 1));
+fprintf('%s vs %s: ttest std = %.4f\n', conditions{1}, conditions{2}, p_std);
+
+[h, p_falff] = ttest(falff_lM1_pair(:, 1), falff_lM1_pair(:, 2));
+[h, p_norm_falff] = swtest(falff_lM1_pair(:, 1));
+fprintf('%s vs %s: ttest fALFF = %.4f\n', conditions{1}, conditions{2}, p_falff);
+
+metrics_lM1 = {falff_lM1_pair, std_lM1_pair};
+ylabels_lM1 = {'lM1 fALFF', 'lM1 Signal STD'};
+titles_lM1 = {'lM1 fALFF: Squeeze vs. Rest', ...
+              'lM1 STD: Squeeze vs. Rest'};
+ylims_lM1 = {falff_ylim, std_ylim};
+
+f3 = figure('Name', 'Comparison - lM1 Squeeze vs Rest (Connected)', 'Position', [100 100 1000 800]);
+
+% Subplots 1-2: fALFF, STD (Squeeze vs Rest Connected)
+for subIdx = 1:2
+    subplot(2, 2, subIdx);
+    y_mat = metrics_lM1{subIdx};
+    mean_vals = mean(y_mat, 1);
+    sem_vals = std(y_mat, 0, 1) / sqrt(size(y_mat, 1));
+    
+    b = bar(1:2, mean_vals, 0.5, 'FaceColor', 'flat', 'FaceAlpha', 0.3);
+    b.CData(1,:) = sqColor;  
+    b.CData(2,:) = rstColor; 
+    hold on;
+    
+    % Connected participant lines across Squeeze (x=1) and Rest (x=2)
+    plot([1 2], y_mat', '-o', 'Color', lineColor, 'LineWidth', 1.2, ...
+        'MarkerSize', 6, 'MarkerFaceColor', [0.2 0.2 0.2], 'MarkerEdgeColor', 'none');
+    
+    errorbar(1:2, mean_vals, sem_vals, 'k.', 'LineWidth', 2, 'CapSize', 10);
+    xticks(1:2); 
+    xticklabels({'Squeeze', 'Rest'}); 
+    ylabel(ylabels_lM1{subIdx}); 
+    title(titles_lM1{subIdx}); 
+    ylim(ylims_lM1{subIdx});
+    grid on; 
+    
+    % Add significance marker (Paired Squeeze vs Rest)
+    cur_ylim = ylim;
+    y_range = cur_ylim(2) - cur_ylim(1);
+    y_base = max(y_mat(:)) + (0.05 * y_range);
+    bracket_h = 0.02 * y_range;
+    
+    addSignificanceMarker(1, 2, y_mat(:,1), y_mat(:,2), y_base, bracket_h);
+    hold off;
+end
+
+% Subplot 3 & 4: Power Spectrum Comparison for lM1 (Squeeze vs Rest) - Spans Bottom Row
+subplot(2, 2, [3 4]);
+freqs_sq = squeezeData(1).powerSpectrum{1}.f;
+freqs_rst = restData(1).powerSpectrum{1}.f;
+psd_sq_lM1 = mean(cell2mat(cellfun(@(p) p{1}.psd(:)', {squeezeData.powerSpectrum}, 'UniformOutput', false)'), 1);
+psd_rst_lM1 = mean(cell2mat(cellfun(@(p) p{1}.psd(:)', {restData.powerSpectrum}, 'UniformOutput', false)'), 1);
+
+plot(freqs_sq, psd_sq_lM1, 'LineWidth', 2, 'Color', sqColor); hold on;
+plot(freqs_rst, psd_rst_lM1, 'LineWidth', 2, 'Color', rstColor);
+set(gca, 'XScale', 'log', 'YScale', 'log'); 
+xlabel('Frequency (Hz)'); 
+ylabel('Power');
+%ylim(psd_ylim); % Standardized Power Spectrum Y-Limits
+title('lM1 Power Spectrum: Squeeze vs. Rest');
+legend({'lM1 Squeeze', 'lM1 Rest'}, 'Location', 'northeast'); grid on; hold off;
+
+exportgraphics(f3, 'Group_Comparison_lM1_Squeeze_vs_Rest_Connected.pdf', 'ContentType', 'vector');
+
+
+% =========================================================================
+% LOCAL HELPER FUNCTIONS
+% =========================================================================
+function addSignificanceMarker(x1, x2, data1, data2, y_pos, bracket_h)
+    % Calculate paired t-test
+    [~, p] = ttest(data1, data2);
+    
+    % Determine marker string
+    if p < 0.001
+        sigStr = '***';
+    elseif p < 0.01
+        sigStr = '**';
+    elseif p < 0.05
+        sigStr = '*';
+    else
+        sigStr = 'n.s.'; 
+    end
+    
+    hold on;
+    % Draw the bracket
+    plot([x1, x1, x2, x2], [y_pos-bracket_h, y_pos, y_pos, y_pos-bracket_h], '-k', 'LineWidth', 1.2);
+    
+    % Add the asterisk/text 
+    text(mean([x1, x2]), y_pos + (bracket_h * 0.2), sigStr, ...
+        'HorizontalAlignment', 'center', ...
+        'VerticalAlignment', 'bottom', ...
+        'FontSize', 12, 'FontWeight', 'bold');
+        
+    % Expand Y-axis limit if the marker goes off-screen
+    cur_ylim = ylim;
+    if (y_pos + 3 * bracket_h) > cur_ylim(2)
+        ylim([cur_ylim(1), y_pos + 4 * bracket_h]);
+    end
+end
+
+function addOneSampleSignificanceMarker(x, data, y_pos, bracket_h)
+    % Calculate one-sample t-test (greater than 0)
+    [~, p] = ttest(data, 0, 'Tail', 'right');
+    
+    % Determine marker string
+    if p < 0.001
+        sigStr = '***';
+    elseif p < 0.01
+        sigStr = '**';
+    elseif p < 0.05
+        sigStr = '*';
+    else
+        sigStr = 'n.s.'; 
+    end
+    
+    hold on;
+    % Draw a smaller bracket centered over the single bar
+    w = 0.15; % Half-width of the bracket
+    plot([x-w, x-w, x+w, x+w], [y_pos-bracket_h, y_pos, y_pos, y_pos-bracket_h], '-k', 'LineWidth', 1.2);
+    
+    % Add the asterisk/text 
+    text(x, y_pos + (bracket_h * 0.2), sigStr, ...
+        'HorizontalAlignment', 'center', ...
+        'VerticalAlignment', 'bottom', ...
+        'FontSize', 12, 'FontWeight', 'bold');
+        
+    % Expand Y-axis limit if the marker goes off-screen
+    cur_ylim = ylim;
+    if (y_pos + 3 * bracket_h) > cur_ylim(2)
+        ylim([cur_ylim(1), y_pos + 4 * bracket_h]);
+    end
+end
