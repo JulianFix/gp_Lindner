@@ -1,0 +1,201 @@
+clear all;
+close all;
+
+% Load data
+loadedData = load('imag_results.mat');
+structField = fieldnames(loadedData);
+data = loadedData.(structField{1});
+
+% Color definitions
+color_lM1  = [0 0.4470 0.7410];      % Blue
+color_PM   = [0.8500 0.3250 0.0980]; % Orange
+color_IPS  = [0.4940 0.1840 0.5560]; % Purple
+condAColor = [0.4660 0.6740 0.1880]; % Green
+condBColor = [0.9290 0.6940 0.1250]; % Yellow/Pink
+lineColor  = [0.5 0.5 0.5 0.5];      % Semi-transparent gray
+
+% Filter datasets for Condition A and Condition B across ROIs
+data_ips_a = data(contains({data.ID}, 'IPSa', 'IgnoreCase', true) & contains({data.ID}, '_a', 'IgnoreCase', true));
+data_pm_a  = data(contains({data.ID}, 'PM', 'IgnoreCase', true) & contains({data.ID}, '_a', 'IgnoreCase', true));
+data_ips_b = data(contains({data.ID}, 'IPSa', 'IgnoreCase', true) & contains({data.ID}, '_b', 'IgnoreCase', true));
+data_pm_b  = data(contains({data.ID}, 'PM', 'IgnoreCase', true) & contains({data.ID}, '_b', 'IgnoreCase', true));
+
+% Compute unified limits for y-axes (for bar plots)
+all_falff  = vertcat(data.fractALFF);
+falff_ylim = [0, max(all_falff(:)) * 1.15];
+
+% =========================================================================
+% FIGURES 1 & 2: 3-ROI Comparison (lM1, PM, IPS) for Condition A & B
+% =========================================================================
+condData_IPS = {data_ips_a, data_ips_b};
+condData_PM  = {data_pm_a, data_pm_b};
+condLabels   = {'Localizer', 'Imaginary'};
+
+for c = 1:2
+    d_ips = condData_IPS{c};
+    d_pm  = condData_PM{c};
+    nSubs = length(d_ips);
+    
+    % Construct [N x 3] matrix for fALFF: Col 1 = lM1, Col 2 = PM, Col 3 = IPS
+    falff_mat = [arrayfun(@(s) s.fractALFF(1), d_ips)', ...
+                 arrayfun(@(s) s.fractALFF(2), d_pm)', ...
+                 arrayfun(@(s) s.fractALFF(2), d_ips)'];
+           
+    % Connectivity matrix [N x 2]: Col 1 = lM1-PM, Col 2 = lM1-IPS
+    r_mat = [[d_pm.r]', [d_ips.r]'];
+    
+    % --- Compute and Print p-values to Console ---
+    [~, p_falff_12] = ttest(falff_mat(:,1), falff_mat(:,2));
+    [~, p_falff_23] = ttest(falff_mat(:,2), falff_mat(:,3));
+    [~, p_falff_13] = ttest(falff_mat(:,1), falff_mat(:,3));
+    [~, p_conn_12]  = ttest(r_mat(:,1), r_mat(:,2));
+    
+    fprintf('=== %s Condition Statistics ===\n', condLabels{c});
+    fprintf('fALFF (lM1 vs PM): p = %.4f\n', p_falff_12);
+    fprintf('fALFF (PM vs IPS): p = %.4f\n', p_falff_23);
+    fprintf('fALFF (lM1 vs IPS): p = %.4f\n', p_falff_13);
+    fprintf('Connectivity (lM1-PM vs lM1-IPS): p = %.4f\n\n', p_conn_12);
+    
+    f = figure('Name', sprintf('Figure %d: %s (lM1 vs lPM vs lIPS)', c, condLabels{c}), ...
+               'Position', [100 100 1000 950]);
+           
+    % Subplot 1: fALFF (3 Bars)
+    subplot(3, 2, 1);
+    mean_vals = mean(falff_mat, 1);
+    sem_vals  = std(falff_mat, 0, 1) / sqrt(nSubs);
+    
+    b = bar(1:3, mean_vals, 0.5, 'FaceColor', 'flat', 'FaceAlpha', 0.3);
+    b.CData(1,:) = color_lM1;
+    b.CData(2,:) = color_PM;
+    b.CData(3,:) = color_IPS;
+    hold on;
+    
+    % Individual subject trajectories across 3 ROIs
+    plot([1 2 3], falff_mat', '-o', 'Color', lineColor, 'LineWidth', 1.2, ...
+        'MarkerSize', 6, 'MarkerFaceColor', [0.2 0.2 0.2], 'MarkerEdgeColor', 'none');
+    
+    errorbar(1:3, mean_vals, sem_vals, 'k.', 'LineWidth', 2, 'CapSize', 10);
+    xticks(1:3); xticklabels({'lM1', 'lPM', 'lIPS'});
+    ylabel('Mean fALFF'); title(sprintf('%s: fALFF', condLabels{c}));
+    ylim(falff_ylim); grid on;
+    
+    % Stack significance markers neatly
+    cur_ylim = ylim;
+    y_range = cur_ylim(2) - cur_ylim(1);
+    y_max = max(falff_mat(:));
+    y_base = y_max + (0.05 * y_range);
+    step = 0.12 * y_range; 
+    bracket_h = 0.02 * y_range;
+    
+    addSignificanceMarker(1, 2, falff_mat(:,1), falff_mat(:,2), y_base, bracket_h);
+    addSignificanceMarker(2, 3, falff_mat(:,2), falff_mat(:,3), y_base + step, bracket_h);
+    addSignificanceMarker(1, 3, falff_mat(:,1), falff_mat(:,3), y_base + 2*step, bracket_h);
+    
+    hold off;
+    
+    % Subplot 2: Connectivity Correlations (lM1-PM & lM1-IPS)
+    subplot(3, 2, 2);
+    mean_r = mean(r_mat, 1);
+    sem_r  = std(r_mat, 0, 1) / sqrt(nSubs);
+    
+    b_r = bar(1:2, mean_r, 0.5, 'FaceColor', 'flat', 'FaceAlpha', 0.3);
+    b_r.CData(1,:) = color_PM;
+    b_r.CData(2,:) = color_IPS;
+    hold on;
+    
+    plot([1 2], r_mat', '-o', 'Color', lineColor, 'LineWidth', 1.2, ...
+        'MarkerSize', 6, 'MarkerFaceColor', [0.2 0.2 0.2], 'MarkerEdgeColor', 'none');
+    errorbar(1:2, mean_r, sem_r, 'k.', 'LineWidth', 2, 'CapSize', 10);
+    xticks(1:2); xticklabels({'lM1 - lPM', 'lM1 - lIPS'});
+    ylabel('Correlation (r)'); ylim([-0.1 1]);
+    title(sprintf('%s: Connectivity', condLabels{c})); grid on;
+    
+    % Add significance for correlation differences
+    cur_ylim = ylim;
+    y_range = cur_ylim(2) - cur_ylim(1);
+    y_base = max(r_mat(:)) + (0.05 * y_range);
+    bracket_h = 0.02 * y_range;
+    
+    addSignificanceMarker(1, 2, r_mat(:,1), r_mat(:,2), y_base, bracket_h);
+    
+    hold off;
+    
+    % Subplot 3: Mean Detrended Time Series (Spans 2 Columns)
+    subplot(3, 2, [3 4]);
+    ts_lM1 = cell2mat(cellfun(@(ts) ts(:,1), {d_ips.timeSeries}, 'UniformOutput', false));
+    ts_PM  = cell2mat(cellfun(@(ts) ts(:,2), {d_pm.timeSeries},  'UniformOutput', false));
+    ts_IPS = cell2mat(cellfun(@(ts) ts(:,2), {d_ips.timeSeries}, 'UniformOutput', false));
+    
+    mean_ts_lM1 = mean(ts_lM1, 2);
+    mean_ts_PM  = mean(ts_PM, 2);
+    mean_ts_IPS = mean(ts_IPS, 2);
+    
+    TR = d_ips(1).TR;
+    numTP = size(ts_lM1, 1);
+    timeVec = (0:numTP-1) * TR;
+    
+    plot(timeVec, mean_ts_lM1, 'LineWidth', 1.5, 'Color', color_lM1); hold on;
+    plot(timeVec, mean_ts_PM,  'LineWidth', 1.5, 'Color', color_PM);
+    plot(timeVec, mean_ts_IPS, 'LineWidth', 1.5, 'Color', color_IPS);
+    xlabel('Time (s)'); ylabel('% fMRI Signal');
+    title(sprintf('%s: Mean Time Series', condLabels{c}));
+    legend({'lM1', 'lPM', 'lIPS'}, 'Location', 'northeast'); grid on; hold off;
+    
+    % Subplot 4: Mean Power Spectrum (Spans 2 Columns)
+    subplot(3, 2, [5 6]);
+    freqs   = d_ips(1).powerSpectrum{1}.f;
+    psd_lM1 = mean(cell2mat(cellfun(@(p) p{1}.psd(:)', {d_ips.powerSpectrum}, 'UniformOutput', false)'), 1);
+    psd_PM  = mean(cell2mat(cellfun(@(p) p{2}.psd(:)', {d_pm.powerSpectrum}, 'UniformOutput', false)'), 1);
+    psd_IPS = mean(cell2mat(cellfun(@(p) p{2}.psd(:)', {d_ips.powerSpectrum}, 'UniformOutput', false)'), 1);
+    
+    % Set log scales
+    set(gca, 'XScale', 'log', 'YScale', 'log'); 
+    xlim([min(freqs), max(freqs)]);
+    hold on; grid on;
+    
+    % Plot lines cleanly
+    plot(freqs, psd_lM1, 'LineWidth', 2, 'Color', color_lM1); 
+    plot(freqs, psd_PM,  'LineWidth', 2, 'Color', color_PM);
+    plot(freqs, psd_IPS, 'LineWidth', 2, 'Color', color_IPS);
+    
+    xlabel('Frequency (Hz)'); ylabel('Power');
+    title(sprintf('%s: Mean Power Spectrum', condLabels{c}));
+    legend({'lM1', 'lPM', 'lIPS'}, 'Location', 'northeast'); grid on; hold off;
+    
+    exportgraphics(f, sprintf('Figure_%d_%s_3ROIs.png', c, strrep(condLabels{c}, ' ', '_')));
+end
+
+% =========================================================================
+% LOCAL HELPER FUNCTIONS
+% =========================================================================
+function addSignificanceMarker(x1, x2, data1, data2, y_pos, bracket_h)
+    % Calculate paired t-test
+    [~, p] = ttest(data1, data2);
+    
+    % Determine marker string based on uncorrected p-value
+    if p < 0.001
+        sigStr = '***';
+    elseif p < 0.01
+        sigStr = '**';
+    elseif p < 0.05
+        sigStr = '*';
+    else
+        sigStr = 'n.s.'; 
+    end
+    
+    hold on;
+    % Draw the bracket
+    plot([x1, x1, x2, x2], [y_pos-bracket_h, y_pos, y_pos, y_pos-bracket_h], '-k', 'LineWidth', 1.2);
+    
+    % Add the asterisk/text with VerticalAlignment set to 'bottom'
+    text(mean([x1, x2]), y_pos + (bracket_h * 0.2), sigStr, ...
+        'HorizontalAlignment', 'center', ...
+        'VerticalAlignment', 'bottom', ...
+        'FontSize', 12, 'FontWeight', 'bold');
+        
+    % Expand Y-axis limit further if the marker gets near the top border
+    cur_ylim = ylim;
+    if (y_pos + 5 * bracket_h) > cur_ylim(2)
+        ylim([cur_ylim(1), y_pos + 6 * bracket_h]);
+    end
+end
