@@ -3,8 +3,8 @@ close all;
 
 % --- Define Configurations for Multiple Datasets ---
 datasets = [
-    struct('ID', 'Sub01_squeeze', 'Path', 'data\DaVa\c', 'ROI', [-42 -25 65; 39 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
-    struct('ID', 'Sub01_restHF', 'Path', 'data\DaVa\d', 'ROI', [-42 -25 65; 39 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    %struct('ID', 'Sub01_squeeze', 'Path', 'data\DaVa\c', 'ROI', [-42 -25 65; 39 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
+    %struct('ID', 'Sub01_restHF', 'Path', 'data\DaVa\d', 'ROI', [-42 -25 65; 39 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
     struct('ID', 'Sub02_squeeze', 'Path', 'data\GeBa\c', 'ROI', [-39 -19 65; 36 -25 56], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
     struct('ID', 'Sub02_restHF', 'Path', 'data\GeBa\d', 'ROI', [-39 -19 65; 36 -25 56], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
     struct('ID', 'Sub03_squeeze', 'Path', 'data\HeEs\c', 'ROI', [-33 -25 71; 39 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8), ...
@@ -17,13 +17,16 @@ datasets = [
     struct('ID', 'Sub06_restHF', 'Path', 'data\SaCe\d', 'ROI', [-36 -25 65; 42 -22 71], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8),  ...
     struct('ID', 'Sub07_squeeze', 'Path', 'data\SiWi\c', 'ROI', [-33 -28 62; 39 -19 62], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8),  ...
     struct('ID', 'Sub07_restHF', 'Path', 'data\SiWi\d', 'ROI', [-33 -28 62; 39 -19 62], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8),  ...
+    struct('ID', 'Sub08_squeeze', 'Path', 'data\NaRo\c', 'ROI', [-39 -25 53; 36 -22 47], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8),  ...
+    struct('ID', 'Sub08_restHF', 'Path', 'data\NaRo\d', 'ROI', [-39 -25 53; 36 -22 47], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8)  ...
     %struct('ID', 'Sub08_squeeze', 'Path', 'data\JuSc\c', 'ROI', [-36 -19 71; 33 -22 74], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8),  ...
     %struct('ID', 'Sub08_restHF', 'Path', 'data\JuSc\d', 'ROI', [-36 -19 71; 33 -22 74], 'ROINames', {{'lM1'; 'rM1'}}, 'TR', 0.8)  ...
     ];
 
-% Preallocate results struct array with powerSpectrum, r, and p fields
+% Preallocate results struct array with timeSeries fields
 results = struct('ID', {}, 'DataPath', {}, 'ROI', {}, 'ROINames', {}, ...
-                 'TR', {}, 'ALFF', {}, 'fractALFF', {}, 'stdev', {}, ...
+                 'TR', {}, 'rawTimeSeries', {}, 'timeSeries', {}, ...
+                 'ALFF', {}, 'fractALFF', {}, 'stdev', {}, ...
                  'r', {}, 'p', {}, 'powerSpectrum', {});
 
 % --- Loop Over Each Dataset ---
@@ -41,7 +44,7 @@ for k = 1:length(datasets)
     end
     
     tspsc = (ts ./ median(ts) - 1) * 100; % %-signal change
-    tspscd = detrend(tspsc);              % Detrend
+    tspscd = detrend(tspsc); % Detrend
     
     numROIs = size(current.ROI, 1);
     ALFF = zeros(1, numROIs);
@@ -51,7 +54,7 @@ for k = 1:length(datasets)
     
     r_val = NaN;
     p_val = NaN;
-
+    
     % Create Figure per Dataset
     f = figure('Name', sprintf('Dataset: %s', current.ID));
     
@@ -95,10 +98,8 @@ for k = 1:length(datasets)
         stdev(z) = std(tspscd(~isoutlier(tspscd(:,z)), z));
         plot(o{z}.f, o{z}.psd);
     end
+    legend(current.ROINames);
     yscale log; xscale log;
-    %ax = gca;
-    %ax.GridLineStyle = '-';
-    %ax.MinorGridLineStyle = '-';
     xlabel('FRQ [Hz]');
     ylabel('Power');
     title('Power Spectrum');
@@ -111,7 +112,6 @@ for k = 1:length(datasets)
     orangeColor = [0.8500 0.3250 0.0980];
     
     % Plot fALFF directly on the standard single y-axis
-    % Centered at 1:numROIs with a bar width of 0.5
     b = bar(1:numROIs, fractALFF, 0.5, 'FaceColor', 'flat');
     
     % Apply ROI colors
@@ -132,8 +132,10 @@ for k = 1:length(datasets)
     if ~exist(outputFolder, 'dir')
         mkdir(outputFolder);
     end
-    pdfPath = fullfile(outputFolder, [current.ID '.pdf']);
-    exportgraphics(f, pdfPath, 'ContentType', 'vector');
+    %pdfPath = fullfile(outputFolder, [current.ID '.pdf']);
+    %exportgraphics(f, pdfPath, 'ContentType', 'vector');
+    pdfPath = fullfile(outputFolder, [current.ID '.png']);
+    exportgraphics(f, pdfPath);
     
     % 3. Store Results in Master Array
     results(k).ID = current.ID;
@@ -141,13 +143,14 @@ for k = 1:length(datasets)
     results(k).ROI = current.ROI;
     results(k).ROINames = current.ROINames;
     results(k).TR = current.TR;
+    results(k).rawTimeSeries = ts;     % Raw extracted intensity values
+    results(k).timeSeries = tspscd;     % Detrended %-signal change time series
     results(k).ALFF = ALFF;
     results(k).fractALFF = fractALFF;
     results(k).stdev = stdev;
     results(k).r = r_val;
     results(k).p = p_val;
     results(k).powerSpectrum = o;
-
 end
 
 % --- Save All Results to a Single MAT File ---
